@@ -259,7 +259,3 @@ for the glow layer, making simultaneous flashes produce additive brightness
 6. **Strogatz, S.H.** (2003). *Sync: The Emerging Science of Spontaneous Order.* Hyperion Press. *(accessible introduction)*
 
 
-
----
-
-*Built with vanilla HTML5 Canvas · No dependencies · Open source*
