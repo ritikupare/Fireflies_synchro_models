@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firefly Synchronization Models</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:          #070B10;
+      --panel:       #0C1420;
+      --border:      rgba(200, 245, 100, 0.12);
+      --border-dim:  rgba(255,255,255,0.05);
+      --text:        #7A8FA0;
+      --text-bright: #BDD0DB;
+      --text-dim:    #2E3F50;
+      --accent:      #C8F050;
+      --accent2:     #6EE7B7;
+      --glow:        rgba(200, 240, 80, 0.2);
+      --ms-accent:   #F0A050;
+      --ms-glow:     rgba(240, 160, 80, 0.2);
+      --sans:        'Space Grotesk', system-ui, sans-serif;
+      --mono:        'JetBrains Mono', monospace;
+    }
+
+    html, body { height: 100%; overflow: hidden; background: var(--bg); }
+
+    body {
+      font-family: var(--sans);
+      color: var(--text);
+      display: grid;
+      grid-template-columns: 1fr 304px;
+      height: 100vh;
+    }
+
+    /* ────────────────── SIMULATION PANE ────────────────── */
+    #sim { position: relative; overflow: hidden; }
+
+    #main-canvas { display: block; width: 100%; height: 100%; }
+
+    /* HUD overlays */
+    .hud {
+      position: absolute;
+      pointer-events: none;
+    }
+
+    .hud-tl { top: 18px; left: 20px; }
+    .hud-tl h1 {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.82);
+      letter-spacing: -0.01em;
+    }
+    .hud-tl .sub {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 3px;
+    }
+
+    .hud-tr { top: 16px; right: 18px; text-align: right; }
+    #r-num {
+      font-family: var(--mono);
+      font-size: 40px;
+      font-weight: 500;
+      line-height: 1;
+      color: var(--accent);
+      text-shadow: 0 0 30px var(--glow);
+      transition: color 0.4s, text-shadow 0.4s;
+    }
+    #r-num.ms-mode { color: var(--ms-accent); text-shadow: 0 0 30px var(--ms-glow); }
+
+    #r-lbl {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .hud-bl { bottom: 12px; left: 16px; right: 16px; }
+    #sync-wrap { height: 3px; background: rgba(255,255,255,0.05); border-radius: 2px; }
+    #sync-bar  {
+      height: 100%;
+      width: 0%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--accent2), var(--accent));
+      box-shadow: 0 0 8px var(--glow);
+      transition: width 0.15s ease;
+    }
+    #sync-bar.ms-mode { background: linear-gradient(90deg, #F07840, var(--ms-accent)); box-shadow: 0 0 8px var(--ms-glow); }
+
+    /* ────────────────── CONTROL PANEL ────────────────── */
+    #panel {
+      border-left: 1px solid var(--border);
+      background: var(--panel);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      scrollbar-width: thin;
+      scrollbar-color: #1A2535 transparent;
+    }
+
+    /* ── Model tab switcher ── */
+    .tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--border-dim);
+      flex-shrink: 0;
+    }
+
+    .tab {
+      padding: 13px 8px;
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: color 0.15s, background 0.15s;
+      border-bottom: 2px solid transparent;
+    }
+
+    .tab:hover { color: var(--text); }
+
+    .tab.active.k-tab {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: rgba(200, 240, 80, 0.05);
+    }
+
+    .tab.active.ms-tab {
+      color: var(--ms-accent);
+      border-bottom-color: var(--ms-accent);
+      background: rgba(240, 160, 80, 0.05);
+    }
+
+    /* ── Sections ── */
+    .sec {
+      padding: 14px 16px 0;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+
+    .sec:last-child { padding-bottom: 20px; }
+
+    .sec-head {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--text-dim);
+      padding-bottom: 7px;
+      border-bottom: 1px solid var(--border-dim);
+    }
+
+    /* ── Model description card ── */
+    .model-card {
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      border: 1px solid var(--border-dim);
+      padding: 11px 13px;
+      font-size: 11px;
+      line-height: 1.7;
+      color: var(--text);
+      display: none;
+    }
+
+    .model-card.k-card { border-color: rgba(200,240,80,0.1); }
+    .model-card.ms-card { border-color: rgba(240,160,80,0.1); }
+    .model-card.visible { display: block; }
+
+    .model-card strong { color: var(--text-bright); font-weight: 500; }
+
+    /* ── Equation blocks ── */
+    .eq {
+      background: rgba(0,0,0,0.28);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 11px 13px;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      line-height: 2.1;
+      color: var(--text-dim);
+      display: none;
+    }
+    .eq.visible { display: block; }
+    .eq .y  { color: var(--accent); }
+    .eq .o  { color: var(--ms-accent); }
+    .eq .g  { color: var(--accent2); }
+    .eq .w  { color: #607580; }
+    .eq .d  { font-size: 9.5px; color: var(--text-dim); }
+
+    /* ── Sliders ── */
+    .sl { display: flex; flex-direction: column; gap: 5px; }
+
+    .sl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .sl-name {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-bright);
+    }
+
+    .sl-val {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+    }
+    .sl-val.ms { color: var(--ms-accent); }
+
+    .sl-hint {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-dim);
+      margin-top: 1px;
+    }
+
+    input[type=range] {
+      width: 100%;
+      height: 3px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255,255,255,0.07);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type=range].k-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--glow);
+      cursor: pointer;
+    }
+    input[type=range].ms-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px; height: 13px;
+      border-radius: 50%;
+      background: var(--ms-accent);
+      box-shadow: 0 0 8px var(--ms-glow);
+      cursor: pointer;
+    }
+    input[type=range].k-range::-moz-range-thumb {
+      width: 13px; height: 13px; border: none;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+    input[type=range].ms-range::-moz-range-thumb {
+      width: 13px; height: 13px; border: none;
+      border-radius: 50%; background: var(--ms-accent); cursor: pointer;
+    }
+
+    /* param sections: show/hide per model */
+    .k-only, .ms-only { display: none; }
+    .k-only.visible, .ms-only.visible { display: contents; }
+
+    /* ── State badge ── */
+    #state-badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      text-align: center;
+      padding: 6px 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,0.2);
+      color: var(--text-dim);
+      border: 1px solid var(--border-dim);
+      transition: all 0.35s;
+    }
+
+    /* ── Canvas panels ── */
+    #wheel-cv {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1;
+    }
+
+    #chart-cv {
+      display: block;
+      width: 100%;
+      height: 68px;
+    }
+
+    /* ── Wheel label (changes per model) ── */
+    #wheel-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-dim);
+      text-align: center;
+      margin-top: -4px;
+    }
+
+    /* ── Buttons ── */
+    .btns { display: flex; gap: 7px; }
+
+    button.action {
+      flex: 1;
+      padding: 9px 6px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+
+    button.action:hover {
+      border-color: rgba(200,242,74,0.5);
+      color: var(--accent);
+      background: rgba(200,242,74,0.05);
+    }
+
+    button.action.primary {
+      border-color: rgba(200,242,74,0.35);
+      color: var(--accent);
+      background: rgba(200,242,74,0.07);
+    }
+
+    button.action.primary:hover { background: rgba(200,242,74,0.13); }
+
+    /* ── References ── */
+    .ref {
+      font-family: var(--mono);
+      font-size: 9.5px;
+      color: var(--text-dim);
+      line-height: 1.8;
+    }
+
+    .divider { height: 1px; background: var(--border-dim); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════ LEFT: Simulation ══════════════ -->
+<div id="sim">
+  <canvas id="main-canvas"></canvas>
+
+  <div class="hud hud-tl">
+    <h1>🌿 Firefly Synchronization</h1>
+    <div class="sub" id="model-label">Kuramoto (1984) · Phase-coupled oscillators</div>
+  </div>
+
+  <div class="hud hud-tr">
+    <div id="r-num">0.000</div>
+    <div id="r-lbl">Order parameter r</div>
+  </div>
+
+  <div class="hud hud-bl">
+    <div id="sync-wrap"><div id="sync-bar"></div></div>
+  </div>
+</div>
+
+<!-- ══════════════ RIGHT: Control Panel ══════════════ -->
+<div id="panel">
+
+  <!-- ── Model tabs ── -->
+  <div class="tabs">
+    <button class="tab k-tab active" id="tab-k" onclick="sim.setModel('kuramoto')">
+      🌀 Kuramoto
+    </button>
+    <button class="tab ms-tab" id="tab-ms" onclick="sim.setModel('ms')">
+      ⚡ Mirollo-Strogatz
+    </button>
+  </div>
+
+  <!-- ── Model Description ── -->
+  <div class="sec">
+    <div class="sec-head">How the model works</div>
+
+    <div class="model-card k-card visible" id="desc-k">
+      Each firefly has its own <strong>natural flash frequency</strong> (ωᵢ).
+      They continuously <strong>adjust their phase</strong> based on what
+      neighbors are doing — pulling toward the mean phase.
+      Above a critical coupling K<sub>c</sub>, spontaneous synchrony emerges
+      from the crowd with no leader.
+    </div>
+
+    <div class="model-card ms-card" id="desc-ms">
+      Each firefly charges an internal <strong>potential x ∈ [0,1]</strong>.
+      When it reaches 1, it <strong>fires</strong> (flashes) and resets to 0.
+      Each flash gives all neighbors a forward nudge ε.
+      The concave rise function guarantees that nudged oscillators always
+      move closer together — making <strong>cascade synchrony</strong> inevitable.
+    </div>
+  </div>
+
+  <!-- ── Equations ── -->
+  <div class="sec">
+    <div class="sec-head">Equations</div>
+
+    <!-- Kuramoto -->
+    <div class="eq visible" id="eq-k">
+      <span class="y">dθᵢ</span><span class="w">/dt</span> =
+      <span class="g">ωᵢ</span> + (<span class="y">K</span>/N)
+      Σⱼ sin(θⱼ − θᵢ) + η(t)<br>
+      <span class="y">r·e<sup>iψ</sup></span> = (1/N) Σⱼ e<sup class="w">iθⱼ</sup><br>
+      <span class="d">ωᵢ ~ 𝒩(ω₀,σ²) · η ~ 𝒩(0, D) · Kc ≈ 2σ√(2/π)</span>
+    </div>
+
+    <!-- Mirollo-Strogatz -->
+    <div class="eq" id="eq-ms">
+      <span class="o">ẋᵢ</span><span class="w"> = ωᵢ</span>
+      (rise until xᵢ = 1, then fire &amp; reset)<br>
+      fire(i) → <span class="o">xⱼ</span> := f<sup>−1</sup>
+      (f(<span class="o">xⱼ</span>) + <span class="o">ε</span>)  ∀j ≠ i<br>
+      <span class="d">f(x) = ln(1+(e<sup>b</sup>−1)x)/b  ·  concave, f(0)=0, f(1)=1</span>
+    </div>
+  </div>
+
+  <!-- ── Parameters ── -->
+  <div class="sec">
+    <div class="sec-head">Parameters</div>
+
+    <!-- Shared: N -->
+    <div class="sl">
+      <div class="sl-row">
+        <span class="sl-name">Fireflies (N)</span>
+        <span class="sl-val" id="v-n">80</span>
+      </div>
+      <input type="range" id="s-n" class="k-range" min="10" max="200" value="80" step="5">
+    </div>
+
+    <!-- Kuramoto-only params -->
+    <div class="k-only visible" id="k-params">
+      <div class="sl">
+        <div class="sl-row">
+          <span class="sl-name">Coupling strength (K)</span>
+          <span class="sl-val" id="v-k">1.5</span>
+        </div>
+        <input type="range" id="s-k" class="k-range" min="0" max="6" value="1.5" step="0.1">
+        <span class="sl-hint" id="kc-hint">Kc ≈ 0.80 · raise K past Kc to sync</span>
+      </div>
+
+      <div class="sl">
+        <div class="sl-row">
+          <span class="sl-name">Frequency spread (σ)</span>
+          <span class="sl-val" id="v-s">0.50</span>
+        </div>
+        <input type="range" id="s-s" class="k-range" min="0.01" max="2.0" value="0.5" step="0.01">
+      </div>
+    </div>
+
+    <!-- Mirollo-Strogatz-only params -->
+    <div class="ms-only" id="ms-params">
+      <div class="sl">
+        <div class="sl-row">
+          <span class="sl-name">Activation strength (ε)</span>
+          <span class="sl-val ms" id="v-e">0.10</span>
+        </div>
+        <input type="range" id="s-e" class="ms-range" min="0.01" max="0.5" value="0.1" step="0.01">
+        <span class="sl-hint">Pulse nudge per firing event</span>
+      </div>
+
+      <div class="sl">
+        <div class="sl-row">
+          <span class="sl-name">Base frequency (ω₀)</span>
+          <span class="sl-val ms" id="v-w">1.00</span>
+        </div>
+        <input type="range" id="s-w" class="ms-range" min="0.3" max="2.5" value="1.0" step="0.05">
+      </div>
+
+      <div class="sl">
+        <div class="sl-row">
+          <span class="sl-name">Concavity (b)</span>
+          <span class="sl-val ms" id="v-b">3.0</span>
+        </div>
+        <input type="range" id="s-b" class="ms-range" min="1" max="8" value="3" step="0.5">
+        <span class="sl-hint">Rise function curvature — higher = stronger absorption</span>
+      </div>
+    </div>
+
+    <!-- Shared: Noise and Flash Width -->
+    <div class="sl">
+      <div class="sl-row">
+        <span class="sl-name">Noise (D)</span>
+        <span class="sl-val" id="v-d">0.00</span>
+      </div>
+      <input type="range" id="s-d" class="k-range" min="0" max="1.0" value="0" step="0.02">
+    </div>
+
+    <div class="sl">
+      <div class="sl-row">
+        <span class="sl-name">Flash width</span>
+        <span class="sl-val" id="v-f">0.40</span>
+      </div>
+      <input type="range" id="s-f" class="k-range" min="0.05" max="1.2" value="0.4" step="0.05">
+      <span class="sl-hint">Visual glow duration (Kuramoto only)</span>
+    </div>
+
+    <div id="state-badge">◌ Desynchronized · r &lt; 0.5</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── Phase wheel ── -->
+  <div class="sec">
+    <div class="sec-head">Phase distribution</div>
+    <canvas id="wheel-cv" width="272" height="272"></canvas>
+    <div id="wheel-label">θᵢ on unit circle · arrow = r·e<sup>iψ</sup></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── r(t) chart ── -->
+  <div class="sec">
+    <div class="sec-head">Synchrony r(t) over time</div>
+    <canvas id="chart-cv" width="272" height="68"></canvas>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── Action buttons ── -->
+  <div class="sec">
+    <div class="btns">
+      <button class="action" onclick="sim.scramble()">⚡ Scramble</button>
+      <button class="action primary" onclick="sim.reset()">↺ New swarm</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- ── References ── -->
+  <div class="sec">
+    <div class="sec-head">References</div>
+    <div class="ref">
+      Kuramoto, Y. (1984). Chemical Oscillations, Waves, and Turbulence. Springer.<br><br>
+      Mirollo, R. &amp; Strogatz, S.H. (1990). Synchronization of pulse-coupled biological oscillators. SIAM J. Appl. Math. 50(6): 1645–1662.<br><br>
+      Buck, J. (1988). Synchronous rhythmic flashing of fireflies. Q. Rev. Biol. 63: 265–289.<br><br>
+      Strogatz, S.H. (2000). From Kuramoto to Crawford: exploring the onset of synchronization. Physica D. 143(1): 1–20.
+    </div>
+  </div>
+
+</div><!-- end panel -->
+
+<!-- ════════════════════════════════════════════════════════
+     SIMULATION ENGINE
+     ════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ────────────────────────────────────────────────────────────────
+//  FIREFLY SYNCHRONIZATION — DUAL MODEL SIMULATION
+//
+//  MODEL 1 · KURAMOTO (1984) — Phase oscillators
+//  ─────────────────────────────────────────────
+//  Each firefly i has a phase θᵢ ∈ [0, 2π) that evolves as:
+//
+//      dθᵢ/dt = ωᵢ + (K/N) Σⱼ sin(θⱼ − θᵢ) + η(t)
+//
+//  ωᵢ ~ N(ω₀, σ²) is the natural flash frequency.
+//  K is global coupling; η(t) is Gaussian noise of intensity D.
+//  A phase transition to synchrony occurs above Kc = 2σ√(2/π).
+//  Order parameter: r = |(1/N) Σⱼ e^{iθⱼ}| ∈ [0, 1]
+//
+//  MODEL 2 · MIROLLO-STROGATZ (1990) — Pulse-coupled oscillators
+//  ──────────────────────────────────────────────────────────────
+//  Each firefly i accumulates potential xᵢ ∈ [0, 1]:
+//      ẋᵢ = ωᵢ   (charge phase, identical or nearly-identical ωᵢ)
+//
+//  When xᵢ reaches 1: fire (flash) → reset xᵢ = 0,
+//  and NUDGE all others:  xⱼ → f⁻¹(f(xⱼ) + ε)
+//
+//  where f(x) = ln(1 + (e^b − 1)x) / b  (concave rise function)
+//  and   f⁻¹(y) = (e^(by) − 1) / (e^b − 1)
+//
+//  Concavity ensures the "absorption" property: nudged oscillators
+//  always converge. This guarantees synchrony for N identical
+//  oscillators regardless of initial conditions (Mirollo & Strogatz 1990).
+//
+//  If nudge causes xⱼ ≥ 1 → CASCADING FIRE: j also resets to 0
+//  and sends its own pulse, creating a chain reaction during sync.
+// ────────────────────────────────────────────────────────────────
+
+const PI2 = Math.PI * 2;
+
+// ── Gaussian random (Box-Muller transform) ──
+function gauss(mu, sigma) {
+  const u = Math.max(1e-10, Math.random());
+  const v = Math.random();
+  return mu + sigma * Math.sqrt(-2 * Math.log(u)) * Math.cos(PI2 * v);
+}
+
+// ── Pre-rendered glow sprite for fast firefly drawing ──
+function makeGlowSprite(R, r, g, b) {
+  const size = R * 2;
+  const oc   = document.createElement('canvas');
+  oc.width   = size;
+  oc.height  = size;
+  const ctx  = oc.getContext('2d');
+  const grd  = ctx.createRadialGradient(R, R, 0, R, R, R);
+  grd.addColorStop(0.00, `rgba(${r},${g},${b},1.0)`);
+  grd.addColorStop(0.12, `rgba(${r},${g},${b},0.90)`);
+  grd.addColorStop(0.35, `rgba(${r},${g},${b},0.45)`);
+  grd.addColorStop(0.65, `rgba(${r},${g},${b},0.15)`);
+  grd.addColorStop(1.00, `rgba(${r},${g},${b},0.0)`);
+  ctx.beginPath();
+  ctx.arc(R, R, R, 0, PI2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+  return oc;
+}
+
+// ────────────────────────────────────────────────────────────────
+//  FIREFLY ENTITY
+// ────────────────────────────────────────────────────────────────
+class Firefly {
+  constructor(x, y, omega) {
+    this.x    = x;
+    this.y    = y;
+    this.omega = omega;
+
+    // Kuramoto state
+    this.theta     = Math.random() * PI2;  // phase ∈ [0, 2π)
+    this.prevTheta = this.theta;
+
+    // Mirollo-Strogatz state
+    this.state     = Math.random();        // potential ∈ [0, 1)
+    this.flashTimer = 0;                   // visual flash decay
+
+    // Shared visual
+    this.brightness = 0;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
+//  MAIN SIMULATION CLASS
+// ────────────────────────────────────────────────────────────────
+class FireflySimulation {
+  constructor() {
+    // Canvas handles
+    this.mainCv   = document.getElementById('main-canvas');
+    this.mainCtx  = this.mainCv.getContext('2d');
+    this.wheelCv  = document.getElementById('wheel-cv');
+    this.wCtx     = this.wheelCv.getContext('2d');
+    this.chartCv  = document.getElementById('chart-cv');
+    this.cCtx     = this.chartCv.getContext('2d');
+
+    // ── Shared parameters ──
+    this.model      = 'kuramoto';
+    this.N          = 80;
+    this.noiseD     = 0;
+    this.flashWidth = 0.4;
+    this.dt         = 0.022;
+
+    // ── Kuramoto parameters ──
+    this.K          = 1.5;
+    this.sigma      = 0.5;
+    this.omega0_k   = 1.3;    // base frequency for Kuramoto
+
+    // ── Mirollo-Strogatz parameters ──
+    this.epsilon    = 0.10;   // pulse strength
+    this.omega0_ms  = 1.00;   // base freq for MS (near-identical oscillators)
+    this.bParam     = 3.0;    // rise function concavity
+
+    // ── State ──
+    this.fireflies   = [];
+    this.ripples     = [];    // expanding ring animations
+    this.rHistory    = [];
+    this.histMax     = 300;
+    this.stars       = [];
+
+    // ── Pre-rendered glow sprites ──
+    this.kGlow  = makeGlowSprite(32, 220, 248, 65);  // yellow-green (Kuramoto)
+    this.msGlow = makeGlowSprite(32, 245, 165, 70);  // amber-orange (MS)
+
+    this.bindControls();
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+    this.reset();
+    this.tick();
+  }
+
+  // ── Resize main canvas ──
+  resize() {
+    const el = document.getElementById('sim');
+    this.mainCv.width  = el.offsetWidth;
+    this.mainCv.height = el.offsetHeight;
+    this._buildStars();
+  }
+
+  _buildStars() {
+    const W = this.mainCv.width, H = this.mainCv.height;
+    const n = Math.floor(W * H / 3800);
+    this.stars = Array.from({ length: n }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H * 0.75,
+      r: Math.random() * 0.85 + 0.15,
+      a: Math.random() * 0.28 + 0.06,
+    }));
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  MODEL SWITCHING
+  // ────────────────────────────────────────────────────────────
+  setModel(model) {
+    this.model = model;
+
+    // Swap tab styles
+    document.getElementById('tab-k').classList.toggle('active', model === 'kuramoto');
+    document.getElementById('tab-ms').classList.toggle('active', model === 'ms');
+
+    // Show/hide descriptions
+    document.getElementById('desc-k').classList.toggle('visible', model === 'kuramoto');
+    document.getElementById('desc-ms').classList.toggle('visible', model === 'ms');
+
+    // Show/hide equations
+    document.getElementById('eq-k').classList.toggle('visible', model === 'kuramoto');
+    document.getElementById('eq-ms').classList.toggle('visible', model === 'ms');
+
+    // Show/hide model-specific params
+    document.getElementById('k-params').classList.toggle('visible', model === 'kuramoto');
+    document.getElementById('ms-params').classList.toggle('visible', model === 'ms');
+
+    // HUD label and colors
+    document.getElementById('model-label').textContent =
+      model === 'kuramoto'
+        ? 'Kuramoto (1984) · Phase-coupled oscillators'
+        : 'Mirollo-Strogatz (1990) · Integrate-and-fire';
+
+    document.getElementById('r-num').classList.toggle('ms-mode', model === 'ms');
+    document.getElementById('sync-bar').classList.toggle('ms-mode', model === 'ms');
+
+    // Wheel label
+    document.getElementById('wheel-label').innerHTML =
+      model === 'kuramoto'
+        ? 'θᵢ on unit circle · arrow = r·e<sup>iψ</sup>'
+        : 'xᵢ mapped to angle (2πxᵢ) · arrow = r·e<sup>iψ</sup>';
+
+    this.reset();
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  SWARM INITIALIZATION
+  // ────────────────────────────────────────────────────────────
+  reset() {
+    const W  = this.mainCv.width  || 700;
+    const H  = this.mainCv.height || 550;
+    const mg = 55;
+
+    this.fireflies = [];
+    this.rHistory  = [];
+    this.ripples   = [];
+
+    for (let i = 0; i < this.N; i++) {
+      const x = mg + Math.random() * (W - 2 * mg);
+      const y = mg + Math.random() * (H * 0.82 - mg);
+
+      let omega;
+      if (this.model === 'kuramoto') {
+        omega = gauss(this.omega0_k, this.sigma);
+      } else {
+        // MS: nearly identical oscillators; small spread so synchrony is possible
+        omega = this.omega0_ms + gauss(0, 0.04);
+      }
+
+      this.fireflies.push(new Firefly(x, y, omega));
+    }
+  }
+
+  // ── Randomize phases / states, keep positions & frequencies ──
+  scramble() {
+    for (const f of this.fireflies) {
+      f.theta      = Math.random() * PI2;
+      f.prevTheta  = f.theta;
+      f.state      = Math.random();
+      f.flashTimer = 0;
+      f.brightness = 0;
+    }
+    this.rHistory = [];
+    this.ripples  = [];
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  MODEL 1 — KURAMOTO UPDATE
+  //  dθᵢ/dt = ωᵢ + (K/N) Σⱼ sin(θⱼ − θᵢ) + η(t)
+  // ────────────────────────────────────────────────────────────
+  stepKuramoto() {
+    const N      = this.fireflies.length;
+    const KoverN = this.K / N;
+    const dt     = this.dt;
+    const fw     = this.flashWidth;
+    const sqrtDt = Math.sqrt(dt);
+    const D      = this.noiseD;
+
+    // Snapshot phases for synchronous update
+    const snap = new Float64Array(N);
+    for (let i = 0; i < N; i++) snap[i] = this.fireflies[i].theta;
+
+    for (let i = 0; i < N; i++) {
+      // Mean-field coupling: (K/N) Σⱼ sin(θⱼ - θᵢ)
+      let coupling = 0;
+      const phi_i  = snap[i];
+      for (let j = 0; j < N; j++) {
+        if (j !== i) coupling += Math.sin(snap[j] - phi_i);
+      }
+
+      // Additive noise (Langevin term)
+      const noise  = D > 0 ? gauss(0, D) * sqrtDt : 0;
+      const dTheta = (this.fireflies[i].omega + KoverN * coupling) * dt + noise;
+
+      this.fireflies[i].prevTheta = phi_i;
+      this.fireflies[i].theta     = (phi_i + dTheta + PI2 * 100) % PI2;
+
+      // Detect flash: phase crossed 0 (wrapped from ~2π → ~0)
+      if (phi_i > 4.8 && this.fireflies[i].theta < 1.5) {
+        this._addRipple(this.fireflies[i].x, this.fireflies[i].y);
+      }
+
+      // Brightness: Gaussian envelope centered on θ = 0
+      const d = Math.min(this.fireflies[i].theta, PI2 - this.fireflies[i].theta);
+      this.fireflies[i].brightness = Math.exp(-(d * d) / (2 * fw * fw));
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  MODEL 2 — MIROLLO-STROGATZ UPDATE
+  //  ẋᵢ = ωᵢ   (rise until xᵢ = 1, then fire & reset)
+  //  fire: xⱼ → f⁻¹( f(xⱼ) + ε )  with cascade on overflow
+  // ────────────────────────────────────────────────────────────
+  stepMS() {
+    const N      = this.fireflies.length;
+    const dt     = this.dt;
+    const eps    = this.epsilon;
+    const b      = this.bParam;
+    const eb     = Math.exp(b);
+    const sqrtDt = Math.sqrt(dt);
+    const D      = this.noiseD;
+
+    // ── MS rise function and its inverse ──
+    // f(x)    = ln(1 + (e^b − 1)·x) / b     f: [0,1]→[0,1], concave
+    // f⁻¹(y) = (e^(by) − 1) / (e^b − 1)
+    const fRise = x  => Math.log(1 + (eb - 1) * x) / b;
+    const fInv  = y  => (Math.exp(b * Math.min(1, Math.max(0, y))) - 1) / (eb - 1);
+
+    // 1. Advance all potentials
+    for (let i = 0; i < N; i++) {
+      const noise          = D > 0 ? gauss(0, D * 0.3) * sqrtDt : 0;
+      this.fireflies[i].state += this.fireflies[i].omega * dt + noise;
+    }
+
+    // 2. Collect all oscillators that crossed threshold
+    const firedSet = new Set();
+    for (let i = 0; i < N; i++) {
+      if (this.fireflies[i].state >= 1) {
+        firedSet.add(i);
+        this.fireflies[i].state      = 0;
+        this.fireflies[i].flashTimer = 1.0;
+        this._addRipple(this.fireflies[i].x, this.fireflies[i].y);
+      }
+    }
+
+    // 3. Apply summed pulse from all fired oscillators
+    //    Each fired oscillator contributes +ε to the potential of all others.
+    //    Because nudges are additive in the f-space: Δf = numFired × ε
+    if (firedSet.size > 0) {
+      const totalNudge = eps * firedSet.size;
+
+      // Collect cascades
+      const cascadeSet = new Set();
+
+      for (let j = 0; j < N; j++) {
+        if (!firedSet.has(j)) {
+          const fxj     = fRise(this.fireflies[j].state);
+          const nudged  = fInv(fxj + totalNudge);
+
+          if (nudged >= 1) {
+            // Cascade fire: j also fires from the nudge
+            cascadeSet.add(j);
+            this.fireflies[j].state      = 0;
+            this.fireflies[j].flashTimer = 1.0;
+            this._addRipple(this.fireflies[j].x, this.fireflies[j].y);
+          } else {
+            this.fireflies[j].state = nudged;
+          }
+        }
+      }
+
+      // 4. Secondary cascade: nudge remaining from newly fired
+      if (cascadeSet.size > 0) {
+        const secondNudge = eps * cascadeSet.size;
+        for (let k = 0; k < N; k++) {
+          if (!firedSet.has(k) && !cascadeSet.has(k)) {
+            const fxk    = fRise(this.fireflies[k].state);
+            const nudged = fInv(fxk + secondNudge);
+            // Clamp below 1 to prevent runaway (limit to 2 cascade levels)
+            this.fireflies[k].state = Math.min(0.9999, nudged);
+          }
+        }
+      }
+    }
+
+    // 5. Decay flash timers → brightness
+    for (let i = 0; i < N; i++) {
+      if (this.fireflies[i].flashTimer > 0) {
+        this.fireflies[i].flashTimer =
+          Math.max(0, this.fireflies[i].flashTimer - dt * 3.5);
+      }
+      this.fireflies[i].brightness = this.fireflies[i].flashTimer;
+    }
+  }
+
+  // ── Dispatch to correct model ──
+  step() {
+    if (this.model === 'kuramoto') this.stepKuramoto();
+    else                           this.stepMS();
+
+    // Advance ripples
+    for (const rp of this.ripples) rp.t += this.dt * 1.8;
+    this.ripples = this.ripples.filter(rp => rp.t < 1);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  ORDER PARAMETER  r = |(1/N) Σ e^{iφᵢ}|
+  //  φᵢ = θᵢ (Kuramoto) or 2π·xᵢ (Mirollo-Strogatz)
+  // ────────────────────────────────────────────────────────────
+  orderParam() {
+    const N = this.fireflies.length;
+    if (N === 0) return 0;
+    let cx = 0, cy = 0;
+    const isK = this.model === 'kuramoto';
+    for (const f of this.fireflies) {
+      const phi = isK ? f.theta : f.state * PI2;
+      cx += Math.cos(phi);
+      cy += Math.sin(phi);
+    }
+    return Math.sqrt(cx * cx + cy * cy) / N;
+  }
+
+  meanPhase() {
+    let cx = 0, cy = 0;
+    const isK = this.model === 'kuramoto';
+    for (const f of this.fireflies) {
+      const phi = isK ? f.theta : f.state * PI2;
+      cx += Math.cos(phi);
+      cy += Math.sin(phi);
+    }
+    return Math.atan2(cy, cx);
+  }
+
+  _addRipple(x, y) {
+    this.ripples.push({ x, y, t: 0, maxR: 38 + Math.random() * 22 });
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  DRAW — MAIN SIMULATION CANVAS
+  // ────────────────────────────────────────────────────────────
+  drawMain() {
+    const ctx = this.mainCtx;
+    const W   = this.mainCv.width;
+    const H   = this.mainCv.height;
+    const isK = this.model === 'kuramoto';
+
+    // 1 · Sky
+    ctx.fillStyle = '#070B10';
+    ctx.fillRect(0, 0, W, H);
+
+    // 2 · Stars
+    for (const s of this.stars) {
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, PI2);
+      ctx.fillStyle = `rgba(200, 215, 240, ${s.a})`;
+      ctx.fill();
+    }
+
+    // 3 · Ripple rings
+    for (const rp of this.ripples) {
+      const R = rp.t * rp.maxR;
+      const a = 0.5 * Math.pow(1 - rp.t, 2);
+      ctx.beginPath();
+      ctx.arc(rp.x, rp.y, R, 0, PI2);
+      ctx.strokeStyle = isK
+        ? `rgba(195, 248, 80, ${a})`
+        : `rgba(248, 165, 60, ${a})`;
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+
+    // 4 · Firefly glows — screen blend for additive light
+    const sprite = isK ? this.kGlow : this.msGlow;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const f of this.fireflies) {
+      const br = f.brightness;
+      if (br < 0.006) continue;
+      const gr = 5 + br * 27;
+      const s  = 64 * (gr / 32);
+      ctx.globalAlpha = Math.min(1, br * 1.1);
+      ctx.drawImage(sprite, f.x - s / 2, f.y - s / 2, s, s);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // 5 · Core dots
+    for (const f of this.fireflies) {
+      const br = f.brightness;
+      if (br > 0.04) {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, 2.2, 0, PI2);
+        ctx.fillStyle = isK
+          ? `rgba(250, 255, 200, ${Math.min(1, br * 1.3)})`
+          : `rgba(255, 230, 170, ${Math.min(1, br * 1.3)})`;
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, 1.2, 0, PI2);
+        ctx.fillStyle = isK
+          ? 'rgba(80, 130, 55, 0.14)'
+          : 'rgba(130, 80, 30, 0.14)';
+        ctx.fill();
+      }
+    }
+
+    // 6 · Treeline
+    this._drawTreeline(ctx, W, H);
+
+    // 7 · Vignette
+    const vg = ctx.createRadialGradient(W/2, H/2, H*0.28, W/2, H/2, H*0.82);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.38)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+
+    // 8 · Ambient glow tint during high synchrony
+    const r = this.rHistory.length > 0 ? this.rHistory[this.rHistory.length - 1] : 0;
+    if (r > 0.7) {
+      const aa = (r - 0.7) * 0.09;
+      ctx.fillStyle = isK
+        ? `rgba(155, 230, 35, ${aa})`
+        : `rgba(240, 130, 35, ${aa})`;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+
+  _drawTreeline(ctx, W, H) {
+    ctx.save();
+    ctx.fillStyle = '#030609';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let i = 0; i <= 140; i++) {
+      const x  = (i / 140) * W;
+      const tH = H * 0.10
+        + Math.sin(i * 0.21  + 0.5) * 20
+        + Math.sin(i * 0.093 + 2.1) * 28
+        + Math.sin(i * 0.047 + 1.4) * 14
+        + Math.sin(i * 0.011 + 3.2) * 10;
+      ctx.lineTo(x, H - Math.max(8, tH));
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  DRAW — PHASE WHEEL
+  //  Each dot = one firefly at its phase on the unit circle.
+  //  Clustering of dots → synchrony.
+  //  Arrow = order parameter vector r·e^{iψ}.
+  // ────────────────────────────────────────────────────────────
+  drawWheel() {
+    const cv  = this.wheelCv;
+    const ctx = this.wCtx;
+    const S   = cv.width;
+    const cx  = S / 2, cy = S / 2;
+    const R   = S / 2 - 10;
+    const isK = this.model === 'kuramoto';
+
+    ctx.clearRect(0, 0, S, S);
+
+    // Background disc
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, PI2);
+    ctx.fillStyle = '#07111E';
+    ctx.fill();
+    ctx.strokeStyle = isK
+      ? 'rgba(200, 245, 100, 0.09)'
+      : 'rgba(240, 160, 80, 0.09)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Inner ring (r = 0.5)
+    ctx.beginPath();
+    ctx.arc(cx, cy, R * 0.5, 0, PI2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth   = 0.7;
+    ctx.stroke();
+
+    // Tick marks
+    for (let i = 0; i < 12; i++) {
+      const a    = (i / 12) * PI2 - Math.PI / 2;
+      const main = i % 3 === 0;
+      ctx.beginPath();
+      ctx.moveTo(cx + (R - (main ? 9 : 5)) * Math.cos(a),
+                 cy + (R - (main ? 9 : 5)) * Math.sin(a));
+      ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a));
+      ctx.strokeStyle = main
+        ? (isK ? 'rgba(200,245,100,0.22)' : 'rgba(240,160,80,0.22)')
+        : 'rgba(200,245,100,0.07)';
+      ctx.lineWidth = main ? 1.5 : 0.7;
+      ctx.stroke();
+    }
+
+    // Labels
+    ctx.font      = '8.5px JetBrains Mono, monospace';
+    ctx.fillStyle = 'rgba(55, 75, 90, 0.85)';
+    ctx.textAlign = 'center';
+    ctx.fillText(isK ? '0' : 'fire', cx, cy - R + 14);
+    ctx.fillText(isK ? 'π'  : '½', cx, cy + R - 4);
+
+    // Firefly dots on ring
+    const dotR = R - 15;
+    for (const f of this.fireflies) {
+      const phi = isK ? f.theta : f.state * PI2;
+      const a   = phi - Math.PI / 2;   // rotate so 0 is at top
+      const dx  = cx + dotR * Math.cos(a);
+      const dy  = cy + dotR * Math.sin(a);
+      const br  = f.brightness;
+
+      ctx.beginPath();
+      ctx.arc(dx, dy, br > 0.08 ? 3.2 : 2, 0, PI2);
+      if (br > 0.08) {
+        ctx.fillStyle   = isK
+          ? `rgba(210, 248, 60, ${0.55 + br * 0.45})`
+          : `rgba(245, 165, 60, ${0.55 + br * 0.45})`;
+        ctx.shadowColor = isK ? 'rgba(200,248,60,0.8)' : 'rgba(245,165,60,0.8)';
+        ctx.shadowBlur  = 5;
+        ctx.fill();
+        ctx.shadowBlur  = 0;
+      } else {
+        ctx.fillStyle = isK ? 'rgba(110,231,183,0.38)' : 'rgba(200,120,80,0.38)';
+        ctx.fill();
+      }
+    }
+
+    // Order parameter vector
+    const rVal = this.orderParam();
+    const psi  = this.meanPhase() - Math.PI / 2;
+    const vx   = cx + rVal * dotR * Math.cos(psi);
+    const vy   = cy + rVal * dotR * Math.sin(psi);
+    const la   = 0.35 + rVal * 0.65;
+    const col  = isK ? `rgba(210,248,60,${la})` : `rgba(245,165,60,${la})`;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(vx, vy);
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 2;
+    ctx.stroke();
+
+    // Arrowhead
+    const ang = Math.atan2(vy - cy, vx - cx);
+    ctx.beginPath();
+    ctx.moveTo(vx, vy);
+    ctx.lineTo(vx - 7 * Math.cos(ang - 0.42), vy - 7 * Math.sin(ang - 0.42));
+    ctx.lineTo(vx - 7 * Math.cos(ang + 0.42), vy - 7 * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fillStyle = col;
+    ctx.fill();
+
+    // Centre
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.5, 0, PI2);
+    ctx.fillStyle = col;
+    ctx.fill();
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  DRAW — r(t) HISTORY CHART
+  // ────────────────────────────────────────────────────────────
+  drawChart() {
+    const ctx  = this.cCtx;
+    const W    = this.chartCv.width;
+    const H    = this.chartCv.height;
+    const hist = this.rHistory;
+    const isK  = this.model === 'kuramoto';
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#060A10';
+    ctx.fillRect(0, 0, W, H);
+
+    // Grid
+    ctx.setLineDash([3, 5]);
+    for (const v of [0.25, 0.5, 0.75, 1.0]) {
+      const y = H - v * H;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.strokeStyle = v === 1.0
+        ? (isK ? 'rgba(200,245,100,0.18)' : 'rgba(240,160,80,0.18)')
+        : 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    if (hist.length < 2) return;
+
+    const xStep = W / (this.histMax - 1);
+    const r0    = isK ? 'rgba(200,245,74' : 'rgba(245,165,60';
+
+    const grad  = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0,   `${r0},0.28)`);
+    grad.addColorStop(0.7, `${r0},0.06)`);
+    grad.addColorStop(1,   `${r0},0)`);
+
+    // Area
+    ctx.beginPath();
+    ctx.moveTo(0, H - hist[0] * H);
+    for (let i = 1; i < hist.length; i++) {
+      ctx.lineTo(i * xStep, H - hist[i] * H);
+    }
+    const endX = (hist.length - 1) * xStep;
+    ctx.lineTo(endX, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(0, H - hist[0] * H);
+    for (let i = 1; i < hist.length; i++) {
+      ctx.lineTo(i * xStep, H - hist[i] * H);
+    }
+    ctx.strokeStyle = `${r0},0.88)`;
+    ctx.lineWidth   = 1.5;
+    ctx.stroke();
+
+    // Endpoint dot
+    const curR = hist[hist.length - 1];
+    ctx.beginPath();
+    ctx.arc(endX, H - curR * H, 3.5, 0, PI2);
+    ctx.fillStyle = `${r0},0.95)`;
+    ctx.fill();
+
+    // Y labels
+    ctx.font      = '8.5px JetBrains Mono, monospace';
+    ctx.fillStyle = 'rgba(55, 75, 90, 0.8)';
+    ctx.textAlign = 'left';
+    ctx.fillText('1', 3, 10);
+    ctx.fillText('.5', 2, H / 2 + 4);
+    ctx.fillText('0', 3, H - 2);
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  UPDATE HUD ELEMENTS
+  // ────────────────────────────────────────────────────────────
+  updateHUD(r) {
+    document.getElementById('r-num').textContent = r.toFixed(3);
+    document.getElementById('sync-bar').style.width = (r * 100).toFixed(1) + '%';
+
+    const badge = document.getElementById('state-badge');
+    const isK   = this.model === 'kuramoto';
+
+    if (r > 0.85) {
+      badge.textContent    = '✦ Synchronized · r > 0.85';
+      badge.style.color    = isK ? 'var(--accent)' : 'var(--ms-accent)';
+      badge.style.background = isK ? 'rgba(200,245,74,0.08)' : 'rgba(240,160,80,0.08)';
+      badge.style.borderColor = isK ? 'rgba(200,245,74,0.2)' : 'rgba(240,160,80,0.2)';
+    } else if (r > 0.5) {
+      badge.textContent    = '◎ Partial sync · r > 0.50';
+      badge.style.color    = 'var(--accent2)';
+      badge.style.background = 'rgba(110,231,183,0.07)';
+      badge.style.borderColor = 'rgba(110,231,183,0.18)';
+    } else {
+      badge.textContent    = '◌ Desynchronized · r < 0.50';
+      badge.style.color    = 'var(--text-dim)';
+      badge.style.background = 'rgba(0,0,0,0.2)';
+      badge.style.borderColor = 'var(--border-dim)';
+    }
+
+    // Kuramoto: update Kc hint
+    if (this.model === 'kuramoto') {
+      const Kc = (2 * this.sigma * Math.sqrt(2 / Math.PI)).toFixed(2);
+      const hint = document.getElementById('kc-hint');
+      if (hint) hint.textContent = `Kc ≈ ${Kc} · raise K past Kc to sync`;
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────
+  //  SLIDER CONTROLS
+  // ────────────────────────────────────────────────────────────
+  bindControls() {
+    const bind = (id, valId, prop, parse, decs, cb) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', e => {
+        const v      = parse(e.target.value);
+        this[prop]   = v;
+        const valEl  = document.getElementById(valId);
+        if (valEl) valEl.textContent = decs > 0 ? v.toFixed(decs) : Math.round(v);
+        if (cb) cb(v);
+      });
+    };
+
+    bind('s-n', 'v-n', 'N',          parseInt,   0, () => this.reset());
+    bind('s-k', 'v-k', 'K',          parseFloat, 1);
+    bind('s-s', 'v-s', 'sigma',      parseFloat, 2, () => this.reset());
+    bind('s-e', 'v-e', 'epsilon',    parseFloat, 2);
+    bind('s-w', 'v-w', 'omega0_ms',  parseFloat, 2, () => this.reset());
+    bind('s-b', 'v-b', 'bParam',     parseFloat, 1);
+    bind('s-d', 'v-d', 'noiseD',     parseFloat, 2);
+    bind('s-f', 'v-f', 'flashWidth', parseFloat, 2);
+  }
+
+  // ── Main animation loop ──
+  tick() {
+    this.step();
+
+    const r = this.orderParam();
+    this.rHistory.push(r);
+    if (this.rHistory.length > this.histMax) this.rHistory.shift();
+
+    this.drawMain();
+    this.drawWheel();
+    this.drawChart();
+    this.updateHUD(r);
+
+    requestAnimationFrame(() => this.tick());
+  }
+}
+
+// ── Boot ──
+const sim = new FireflySimulation();
+</script>
+</body>
+</html>
